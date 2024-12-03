@@ -1,302 +1,175 @@
-<script>
-    window.auctionApp = {
-        isConnected: false,
-        ethereum: null,
-        account: '',
-        contractAddress: '0xa86e7FE31A3B3385A47F553df30E23041933bEE1',  // ที่อยู่สัญญาของการประมูล
-        linkTokenAddress: '0x514910771af9ca656af840dff83e8264ecf986ca',  // ที่อยู่ของเหรียญ LINK
-        bidAmount: '',  // จำนวนบิด
-        itemName: '',  // ชื่อสินค้า
-        highestBid: ethers.BigNumber.from(0),
-        highestBidder: '',
-        balance: ethers.BigNumber.from(0),
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auction DApp</title>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <script src="https://unpkg.com/@metamask/detect-provider/dist/detect-provider.min.js"></script>
+</head>
+<body>
+    <h1>Auction DApp</h1>
+    <button onclick="auctionApp.connect()">Connect Wallet</button>
+    <div id="status"></div>
+    <input id="itemName" type="text" placeholder="Item Name" />
+    <input id="bidAmount" type="text" placeholder="Bid Amount (ETH)" />
+    <button onclick="auctionApp.startAuction()">Start Auction</button>
+    <button onclick="auctionApp.placeBid()">Place Bid</button>
 
-        async init() {
-            this.ethereum = await detectEthereumProvider();
-            if (!this.ethereum) {
-                alert("Please install MetaMask!");
-                return;
-            }
-            window.provider = new ethers.providers.Web3Provider(this.ethereum);
+    <script>
+        window.auctionApp = {
+            isConnected: false,
+            ethereum: null,
+            account: '',
+            contractAddress: '0xb29c3c7Ef71bF8Bc72DCb4E0054206B16f723F4f',  // Auction contract address
+            linkTokenAddress: '0x779877A7B0D9E8603169DdbD7836e478b4624789',  // LINK token address
+            bidAmount: '',
+            itemName: '',
+            highestBid: ethers.BigNumber.from(0),
+            highestBidder: '',
+            balance: ethers.BigNumber.from(0),
 
-            try {
-                await ethereum.request({
-                    method: 'wallet_switchEthereumChain',
-                    params: [{ chainId: '0xaa36a7' }] // Sepolia Testnet Chain ID
-                });
-            } catch (err) {
-                if (err.code === 4902) {
-                    // Add Sepolia Testnet to MetaMask
-                    await ethereum.request({
-                        method: 'wallet_addEthereumChain',
-                        params: [{
-                            chainId: '0xaa36a7',
-                            chainName: 'Sepolia Testnet',
-                            nativeCurrency: {
-                                name: 'SepoliaETH',
-                                symbol: 'SepoliaETH',
-                                decimals: 18,
-                            },
-                            rpcUrls: ['https://sepolia.infura.io/v3/YOUR_INFURA_PROJECT_ID'], // Replace with your Infura Project ID
-                            blockExplorerUrls: ['https://sepolia.etherscan.io/'],
-                        }]
-                    });
-                } else {
-                    console.error('Error switching to Sepolia:', err);
+            async init() {
+                this.ethereum = await detectEthereumProvider();
+                if (!this.ethereum) {
+                    alert("MetaMask is not installed. Please install MetaMask.");
+                    return;
                 }
-            }
 
-            this.ethereum.on('accountsChanged', async (accounts) => {
-                if (accounts.length === 0) {
-                    this.isConnected = false;
-                } else {
+                window.provider = new ethers.providers.Web3Provider(this.ethereum);
+                console.log("Ethereum provider detected.");
+
+                try {
+                    await ethereum.request({
+                        method: 'wallet_switchEthereumChain',
+                        params: [{ chainId: '0xaa36a7' }] // Sepolia Testnet Chain ID
+                    });
+                } catch (err) {
+                    if (err.code === 4902) {
+                        console.log("Sepolia Testnet not found in MetaMask. Adding chain...");
+                        await ethereum.request({
+                            method: 'wallet_addEthereumChain',
+                            params: [{
+                                chainId: '0xaa36a7',
+                                chainName: 'Sepolia Testnet',
+                                nativeCurrency: {
+                                    name: 'SepoliaETH',
+                                    symbol: 'SepoliaETH',
+                                    decimals: 18,
+                                },
+                                rpcUrls: ['https://sepolia.infura.io/v3/YOUR_INFURA_PROJECT_ID'],
+                                blockExplorerUrls: ['https://sepolia.etherscan.io/'],
+                            }]
+                        });
+                    } else {
+                        console.error("Error switching chain:", err);
+                        return;
+                    }
+                }
+
+                this.ethereum.on('accountsChanged', async (accounts) => {
+                    if (accounts.length === 0) {
+                        this.isConnected = false;
+                        console.log("No accounts found. Disconnected.");
+                    } else {
+                        this.account = accounts[0];
+                        this.isConnected = true;
+                        await this.loadBalance();
+                        console.log("Account changed:", this.account);
+                    }
+                });
+
+                setInterval(async () => {
+                    if (this.isConnected) {
+                        await this.loadBalance();
+                    }
+                }, 5000);
+            },
+
+            async connect() {
+                try {
+                    const accounts = await this.ethereum.request({ method: 'eth_requestAccounts' });
                     this.account = accounts[0];
                     this.isConnected = true;
                     await this.loadBalance();
+                    console.log("Connected account:", this.account);
+                } catch (err) {
+                    console.error("Error connecting to MetaMask:", err);
                 }
-            });
+            },
 
-            setInterval(async () => {
-                if (this.isConnected) {
-                    await this.loadBalance();
+            async loadBalance() {
+                try {
+                    const contract = this.getContract();
+                    const balance = await contract.balanceOf(this.account);
+                    this.balance = ethers.utils.formatEther(balance);
+                    console.log("Balance:", this.balance);
+                } catch (err) {
+                    console.error("Error loading balance:", err);
                 }
-            }, 5000);
-        },
+            },
 
-        async connect() {
-            const accounts = await this.ethereum.request({ method: 'eth_requestAccounts' });
-            this.account = accounts[0];
-            this.isConnected = true;
-            await this.loadBalance();
-        },
+            async startAuction() {
+                try {
+                    this.itemName = document.getElementById("itemName").value;
+                    this.bidAmount = document.getElementById("bidAmount").value;
+                    const contract = this.getContract();
+                    const tx = await contract.startAuction(this.itemName, ethers.utils.parseEther(this.bidAmount), 60);
+                    await tx.wait();
+                    alert("Auction started successfully!");
+                    console.log("Auction started with item:", this.itemName);
+                } catch (err) {
+                    console.error("Error starting auction:", err);
+                }
+            },
 
-        async loadBalance() {
-            const contract = this.getContract();
-            const balance = await contract.balanceOf(this.account);
-            this.balance = ethers.utils.formatEther(balance);
-        },
+            async placeBid() {
+                try {
+                    this.bidAmount = document.getElementById("bidAmount").value;
+                    const contract = this.getContract();
+                    const bidValue = ethers.utils.parseEther(this.bidAmount);
+                    const tx = await contract.bid(bidValue);
+                    await tx.wait();
+                    alert("Bid placed successfully!");
+                    console.log("Bid placed with amount:", this.bidAmount);
+                } catch (err) {
+                    console.error("Error placing bid:", err);
+                }
+            },
 
-        async startAuction() {
-            const contract = this.getContract();
-            const tx = await contract.startAuction(this.itemName, ethers.utils.parseEther(this.bidAmount), 5);  // Start auction for 1 hour
-            await tx.wait();
-            alert("Auction started!");
-        },
+            getContract() {
+                const abi = [
+                    {
+                        "inputs": [
+                            { "internalType": "address", "name": "_linkTokenAddress", "type": "address" }
+                        ],
+                        "stateMutability": "nonpayable",
+                        "type": "constructor"
+                    },
+                    { "inputs": [], "name": "auctionEndTime", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
+                    { "inputs": [], "name": "auctionStarted", "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }], "stateMutability": "view", "type": "function" },
+                    { "inputs": [{ "internalType": "uint256", "name": "_bidAmount", "type": "uint256" }], "name": "bid", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+                    { "inputs": [], "name": "endAuction", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+                    { "inputs": [], "name": "getHighestBid", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
+                    { "inputs": [], "name": "getHighestBidder", "outputs": [{ "internalType": "address", "name": "", "type": "address" }], "stateMutability": "view", "type": "function" },
+                    { "inputs": [], "name": "getItemName", "outputs": [{ "internalType": "string", "name": "", "type": "string" }], "stateMutability": "view", "type": "function" },
+                    { "inputs": [], "name": "highestBid", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
+                    { "inputs": [], "name": "highestBidder", "outputs": [{ "internalType": "address", "name": "", "type": "address" }], "stateMutability": "view", "type": "function" },
+                    { "inputs": [], "name": "itemName", "outputs": [{ "internalType": "string", "name": "", "type": "string" }], "stateMutability": "view", "type": "function" },
+                    { "inputs": [], "name": "linkToken", "outputs": [{ "internalType": "contract IERC20", "name": "", "type": "address" }], "stateMutability": "view", "type": "function" },
+                    { "inputs": [], "name": "owner", "outputs": [{ "internalType": "address", "name": "", "type": "address" }], "stateMutability": "view", "type": "function" },
+                    { "inputs": [{ "internalType": "string", "name": "_itemName", "type": "string" }, { "internalType": "uint256", "name": "_startingPrice", "type": "uint256" }, { "internalType": "uint256", "name": "_durationInMinutes", "type": "uint256" }], "name": "startAuction", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+                    { "inputs": [], "name": "startingPrice", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" }
+                ];
+                return new ethers.Contract(this.contractAddress, abi, window.provider.getSigner());
+            }
+        };
 
-        async placeBid() {
-            const contract = this.getContract();
-            const bidValue = ethers.utils.parseEther(this.bidAmount);
-            const tx = await contract.bid(bidValue);
-            await tx.wait();
-            alert("Bid placed successfully!");
-        },
+        window.onload = () => auctionApp.init();
+    </script>
+</body>
+</html>
 
-        getContract() {
-            const abi = [
-			[
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "_linkTokenAddress",
-				"type": "address"
-			}
-		],
-		"stateMutability": "nonpayable",
-		"type": "constructor"
-	},
-	{
-		"inputs": [],
-		"name": "auctionEndTime",
-		"outputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "auctionStarted",
-		"outputs": [
-			{
-				"internalType": "bool",
-				"name": "",
-				"type": "bool"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "uint256",
-				"name": "_bidAmount",
-				"type": "uint256"
-			}
-		],
-		"name": "bid",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "endAuction",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "getHighestBid",
-		"outputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "getHighestBidder",
-		"outputs": [
-			{
-				"internalType": "address",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "getItemName",
-		"outputs": [
-			{
-				"internalType": "string",
-				"name": "",
-				"type": "string"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "highestBid",
-		"outputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "highestBidder",
-		"outputs": [
-			{
-				"internalType": "address",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "itemName",
-		"outputs": [
-			{
-				"internalType": "string",
-				"name": "",
-				"type": "string"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "linkToken",
-		"outputs": [
-			{
-				"internalType": "contract IERC20",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "owner",
-		"outputs": [
-			{
-				"internalType": "address",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "string",
-				"name": "_itemName",
-				"type": "string"
-			},
-			{
-				"internalType": "uint256",
-				"name": "_startingPrice",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "_durationInMinutes",
-				"type": "uint256"
-			}
-		],
-		"name": "startAuction",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "startingPrice",
-		"outputs": [
-			{
-				"internalType": "uint256",
-				"name": "",
-				"type": "uint256"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	}
-]
-            ];
-            return new ethers.Contract(this.contractAddress, abi, window.provider.getSigner());
-        }
-    };
-</script>
 
 
 
